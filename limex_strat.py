@@ -289,7 +289,7 @@ class Combined(Strategy):
                  weights=[1/4]*4, vote_thresh=0.):
         super().__init__(symbol, data, days_back, period)
         if strategies is None:
-            self.strategies = [MA_C, RSI, MACD, BB]
+            self.strategies = [strat(symbol, days_back=days_back, period=period) for strat in [MA_C, RSI, MACD, BB]]
         else:
             self.strategies = strategies
         self.weights = np.array(weights)
@@ -297,22 +297,21 @@ class Combined(Strategy):
         self.vote_thresh = vote_thresh
         self.get_data()
 
-    def get_data(self, signals=False):
+    def get_data(self, signals=False, optimize=True):
         df = self.data
         df['returns'] = np.log(df['close'] / df['close'].shift(1))
 
         if not signals:
             signals = pd.DataFrame(index=df.index)
             for strat in self.strategies:
-                s = strat(self.symbol, df.copy())
+                if optimize:
+                    # optimize and change parameters
+                    opt = strat.optimize().iloc[0]
+                    opt = opt.drop(['returns', 'strategy', 'net']).to_dict()
+                    strat.change_params(**opt)
 
-                # optimize and change parameters
-                opt = s.optimize().iloc[0]
-                opt = opt.drop(['returns', 'strategy', 'net']).to_dict()
-                s.change_params(**opt)
-
-                signals[s.__class__.__name__] = s.data['signal']
-                df[f'{s.__class__.__name__}_signal'] = s.data['signal']
+                signals[strat.__class__.__name__] = strat.data['signal']
+                df[f'{strat.__class__.__name__}_signal'] = strat.data['signal']
         else:
             signals = df.filter(regex='_signal$')
 
