@@ -6,6 +6,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from limex_strat import Combined
 from utils import get_access_token, fetch_price_data, execute_trade
+import pytz
 
 
 class TradingBot:
@@ -190,6 +191,14 @@ class TradingBot:
             while True:
                 current_time = time.time()
                 
+                # Check if market is open
+                if not self.is_market_open():
+                    next_open = self.time_until_next_market_open()
+                    print(f"Market closed for {self.symbol}. Sleeping until next market open in {next_open:.1f} hours")
+                    # Sleep until next check time (check every 15 minutes when market is closed)
+                    time.sleep(min(900, next_open * 3600))  # Sleep for 15 minutes or until market opens
+                    continue
+                
                 # Check if we need to re-optimize (every reoptimize_days)
                 seconds_since_optimization = current_time - self.last_optimization
                 if seconds_since_optimization > (self.reoptimize_days * 24 * 3600):
@@ -198,6 +207,7 @@ class TradingBot:
                 
                 # Fetch latest data
                 try:
+                    print(f"Fetching data for {self.symbol}")
                     latest_data = fetch_price_data(self.symbol, self.access_token, 3, self.period)
                     # Update strategy data
                     if self.strategy is not None and latest_data is not None and not latest_data.empty:
@@ -226,4 +236,52 @@ class TradingBot:
         except Exception as e:
             print(f"Critical error in trading bot for {self.symbol}: {e}")
             raise
+
+    def is_market_open(self):
+        """Check if the NYSE market is currently open"""
+        # Define NYSE trading hours (9:30 AM - 4:00 PM Eastern Time)
+        now = datetime.now(pytz.timezone('US/Eastern'))
+        
+        # Check if it's a weekend
+        if now.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+            return False
+        
+        # Check if it's during trading hours (9:30 AM - 4:00 PM)
+        market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        
+        return market_open <= now <= market_close
+
+    def time_until_next_market_open(self):
+        """Calculate time in hours until the next market open"""
+        now = datetime.now(pytz.timezone('US/Eastern'))
+        
+        # Figure out the next market open time
+        if now.weekday() >= 5:  # Weekend
+            # If Saturday (5), we need to wait until Monday
+            days_to_add = 7 - now.weekday()
+        else:  # Weekday
+            if now.hour < 9 or (now.hour == 9 and now.minute < 30):
+                # Before market open on a weekday
+                days_to_add = 0
+            else:
+                # After market hours on a weekday
+                if now.weekday() == 4:  # Friday
+                    days_to_add = 3  # Wait until Monday
+                else:
+                    days_to_add = 1  # Wait until tomorrow
+        
+        # Calculate the next open time
+        next_day = now + timedelta(days=days_to_add)
+        next_open = next_day.replace(hour=9, minute=30, second=0, microsecond=0)
+        
+        # If same day and currently before market open
+        if days_to_add == 0:
+            next_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        
+        # Calculate the difference in hours
+        diff = next_open - now
+        hours_until_open = diff.total_seconds() / 3600
+        
+        return hours_until_open
 

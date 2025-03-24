@@ -6,7 +6,7 @@ eval "$(conda shell.bash hook)"
 conda activate assets
 
 # Total capital
-TOTAL_CAPITAL=1000
+TOTAL_CAPITAL=90000
 
 # Define symbols to trade
 SYMBOLS=("AAPL" "LLY" "COST" "BRK.B" "CAT" "OKLO" "LIN" "AMT" "AWK")
