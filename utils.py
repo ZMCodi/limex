@@ -109,3 +109,15 @@ def get_account_balances(access_token):
     else:
         raise Exception(f"Failed to fetch balances: {response.status_code}, {response.text}")
 
+def execute_trade(access_token, symbol, side, quantity):
+    order_payload = {
+        "account_number": ACCOUNT_NUMBER,
+        "symbol": symbol,
+        "quantity": quantity,
+        #"price": 250.00, #price only for limit order
+        "time_in_force": "day",
+        "order_type": "market",
+        "side": side,
+        "exchange": "auto"
+    }
+    place_order(access_token, order_payload)
