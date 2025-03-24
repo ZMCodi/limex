@@ -9,7 +9,7 @@ conda activate assets
 TOTAL_CAPITAL=1000
 
 # Define symbols to trade
-SYMBOLS=("AAPL")
+SYMBOLS=("AAPL" "LLY" "COST" "BRK.B" "CAT" "OKLO" "LIN" "AMT" "AWK")
 
 # Calculate allocation per symbol
 NUM_SYMBOLS=${#SYMBOLS[@]}
