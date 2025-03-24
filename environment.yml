@@ -1,6 +1,25 @@
-name: limex
+name: assets
 channels:
   - conda-forge
-  - defaults
+  - anaconda
 dependencies:
-  - python=3.12
+  - python==3.10.16
+  - yfinance
+  - psycopg
+  - plotly
+  - mplfinance
+  - scipy
+  - seaborn
+  - conda-forge::python-kaleido
+  - ipykernel
+  - nbformat
+  - scikit-optimize
+  - deap
+  - pyswarms
+  - numba
+  - openpyxl
+  - python-dotenv
+  - fastapi
+  - supabase
+  - pandas_market_calendars
+prefix: /Users/ZMCodi/miniforge3/envs/assets
