@@ -5,8 +5,7 @@ from ta import TAEngine
 import signal_gen as sg
 from utils import get_access_token, fetch_price_data
 from abc import ABC, abstractmethod
-import multiprocessing as mp
-import scipy.optimize as sco
+
 from itertools import product
 
 token = get_access_token()
