@@ -47,7 +47,16 @@ class Strategy(ABC):
 
     @property
     def num_signals(self):
-        return np.sum(np.where(self.data['signal'].shift(1) != self.data['signal'], 1, 0)) 
+        return np.sum(np.where(self.data['signal'].shift(1) != self.data['signal'], 1, 0))
+    
+    @property
+    def params(self):
+        params = {}
+        for p in self.__dict__:
+            if p not in ['symbol', 'access_token', 'data', 'ta']:
+                params[p] = self.__dict__[p]
+
+        return params
 
 
 class MA_C(Strategy):
@@ -303,12 +312,13 @@ class Combined(Strategy):
         if not signals:
             signals = pd.DataFrame(index=df.index)
             for strat in self.strategies:
+                strat.data = df.copy()
                 if optimize:
                     # optimize and change parameters
                     opt = strat.optimize().iloc[0]
                     opt = opt.drop(['returns', 'strategy', 'net']).to_dict()
                     strat.change_params(**opt)
-
+                strat.get_data()
                 signals[strat.__class__.__name__] = strat.data['signal']
                 df[f'{strat.__class__.__name__}_signal'] = strat.data['signal']
         else:
