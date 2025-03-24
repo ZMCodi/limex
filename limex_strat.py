@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import multiprocessing
 
 from ta import TAEngine
 import signal_gen as sg
@@ -41,16 +40,16 @@ class Strategy(ABC):
             end = self.data.index[-1]
         df = self.data.loc[start:end]
         return np.exp(df[['returns', 'strategy']].sum()) - 1
-    
+
     @classmethod
     def _optimize_helper(cls, params, start=None, end=None):
         strat = cls(**params)
         return strat.backtest(start, end)
-    
+
     @property
     def num_signals(self):
         return np.sum(np.where(self.data['signal'].shift(1) != self.data['signal'], 1, 0)) 
-    
+
 
 class MA_C(Strategy):
     def __init__(self, symbol, data=None, days_back=3, period='minute_5', short=20, long=50):
@@ -73,9 +72,9 @@ class MA_C(Strategy):
 
     def change_params(self, short=None, long=None):
         if short is not None:
-            self.short = short
+            self.short = int(short)
         if long is not None:
-            self.long = long
+            self.long = int(long)
         self.get_data()
 
     def optimize(self, start=None, end=None):
@@ -124,7 +123,7 @@ class RSI(Strategy):
 
     def change_params(self, window=None, overbought=None, oversold=None, mrev=None, weights=None, vote_thresh=None):
         if window is not None:
-            self.window = window
+            self.window = int(window)
         if overbought is not None:
             self.overbought = overbought
         if oversold is not None:
@@ -193,11 +192,11 @@ class MACD(Strategy):
 
     def change_params(self, fast=None, slow=None, signal=None, weights=None, vote_thresh=None):
         if fast is not None:
-            self.fast = fast
+            self.fast = int(fast)
         if slow is not None:
-            self.slow = slow
+            self.slow = int(slow)
         if signal is not None:
-            self.signal = signal
+            self.signal = int(signal)
         if weights is not None:
             self.weights = np.array(weights)
             self.weights /= self.weights.sum()
@@ -256,7 +255,7 @@ class BB(Strategy):
 
     def change_params(self, window=None, width=None, weights=None, vote_thresh=None):
         if window is not None:
-            self.window = window
+            self.window = int(window)
         if width is not None:
             self.width = width
         if weights is not None:
@@ -284,3 +283,86 @@ class BB(Strategy):
         results = results.sort_values('net', ascending=False)
         return results
 
+
+class Combined(Strategy):
+    def __init__(self, symbol, data=None, days_back=3, period='minute_5', strategies=None,
+                 weights=[1/4]*4, vote_thresh=0.):
+        super().__init__(symbol, data, days_back, period)
+        if strategies is None:
+            self.strategies = [MA_C, RSI, MACD, BB]
+        else:
+            self.strategies = strategies
+        self.weights = np.array(weights)
+        self.weights /= self.weights.sum()
+        self.vote_thresh = vote_thresh
+        self.get_data()
+
+    def get_data(self, signals=False):
+        df = self.data
+        df['returns'] = np.log(df['close'] / df['close'].shift(1))
+
+        if not signals:
+            signals = pd.DataFrame(index=df.index)
+            for strat in self.strategies:
+                s = strat(self.symbol, df.copy())
+
+                # optimize and change parameters
+                opt = s.optimize().iloc[0]
+                opt = opt.drop(['returns', 'strategy', 'net']).to_dict()
+                s.change_params(**opt)
+
+                signals[s.__class__.__name__] = s.data['signal']
+                df[f'{s.__class__.__name__}_signal'] = s.data['signal']
+        else:
+            signals = df.filter(regex='_signal$')
+
+        df['signal'] = sg.vote(signals, self.vote_thresh, self.weights)
+        df['strategy'] = df['signal'].shift(1) * df['returns']
+        self.data = df
+
+    def change_params(self, strategies=None, weights=None, vote_thresh=None):
+        if strategies is not None:
+            self.strategies = strategies
+        if weights is not None:
+            self.weights = np.array(weights)
+            self.weights /= self.weights.sum()
+        if vote_thresh is not None:
+            self.vote_thresh = vote_thresh
+        self.get_data(signals=True)
+
+    def optimize(self, start=None, end=None, threshold_range=None):
+        old_params = {'weights': self.weights, 'vote_thresh': self.vote_thresh}
+
+        n_weights = len(self.weights)
+        if threshold_range is None:
+            threshold_range = np.arange(0.2, 0.9, 0.1)
+
+        weight_combinations = product(np.arange(0.1, 1.1, 0.1), repeat=n_weights)
+        weight_combinations = [w for w in weight_combinations if np.isclose(np.sum(w), 1.0)]
+        threshold_combinations = threshold_range
+
+        best_value = float('inf')
+        best_params = None
+
+        for weights in weight_combinations:
+            for threshold in threshold_combinations:
+                self.change_params(weights=np.array(weights), vote_thresh=threshold)
+                res = self.backtest(start=start, end=end)
+                value = -res['strategy'].sum()
+                if value < best_value:
+                    best_value = value
+                    best_params = (weights, threshold)
+
+        opt_weights, opt_threshold = best_params
+
+        self.change_params(weights=opt_weights, vote_thresh=opt_threshold)
+        res = self.backtest(start=start, end=end)
+        res.rename({'strategy': 'strategy_returns', 'returns': 'hold_returns'}, inplace=True)
+        res['net'] = res['strategy_returns'] - res['hold_returns']
+
+        self.change_params(**old_params)
+        return {
+            'weights': [float(w) for w in opt_weights],
+            'vote_thresh': float(opt_threshold),
+            'results': res.to_dict(),
+        }
