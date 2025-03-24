@@ -1,33 +1,36 @@
 #!/usr/bin/env python3
 """
-Main script to launch trading bots for multiple symbols.
+Main script to launch trading bots for a single symbol.
 This is the entry point for the trading system.
 """
 
-from bots import run_trading_bots
+import sys
+from bots import TradingBot
 
 if __name__ == "__main__":
-    # Configure the symbols you want to trade
-    symbols_to_trade = [
-        "AAPL",  # Apple
-        "MSFT",  # Microsoft
-        "GOOGL", # Google
-        "AMZN",  # Amazon
-        "META",  # Meta (Facebook)
-        "TSLA",  # Tesla
-        "NVDA",  # NVIDIA
-        "AMD",   # AMD
-        "JPM",   # JPMorgan Chase
-        "V"      # Visa
-    ]
+    # Check if symbol and allocation were provided as command line arguments
+    if len(sys.argv) > 2:
+        symbol = sys.argv[1]
+        allocation = float(sys.argv[2])
+    elif len(sys.argv) > 1:
+        symbol = sys.argv[1]
+        allocation = 300  # Default allocation if only symbol is provided
+    else:
+        # Default values if none provided
+        symbol = "AAPL"
+        allocation = 300
     
-    # Total capital to allocate across all symbols
-    TOTAL_CAPITAL = 1000
+    print(f"Starting trading bot for {symbol} with ${allocation} capital")
+    print("Press Ctrl+C to stop the trading bot")
     
-    print(f"Starting trading system with ${TOTAL_CAPITAL} capital")
-    print(f"Trading {len(symbols_to_trade)} symbols: {', '.join(symbols_to_trade)}")
-    print(f"Capital per symbol: ${TOTAL_CAPITAL / len(symbols_to_trade)}")
-    print("Press Ctrl+C to stop all trading bots")
+    # Create and run a single bot
+    bot = TradingBot(
+        symbol=symbol,
+        allocation=allocation,
+        days_back=5,
+        period='minute',
+        reoptimize_days=5
+    )
     
-    # Launch the trading bots
-    run_trading_bots(symbols_to_trade, total_capital=TOTAL_CAPITAL)
+    # Run the bot
+    bot.run()

@@ -54,20 +54,21 @@ class TradingBot:
 
     def _initialize_logger(self):
         """Initialize a logger for the trading bot"""
-        logger = logging.getLogger(self.symbol)
-        logger.setLevel(logging.INFO)
+        # Create a logger with the symbol name
+        logger = logging.getLogger(f"bot.{self.symbol}")
         
-        # Create a file handler with a unique ID based on the date
+        # Create a file handler specifically for this bot
         log_filename = f"logs/{self.symbol}_{datetime.now().strftime('%Y%m%d')}.log"
         file_handler = logging.FileHandler(log_filename)
         file_handler.setLevel(logging.INFO)
         
         # Create a logging format
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(formatter)
         
-        # Add the handlers to the logger
-        logger.addHandler(file_handler)
+        # Add the handler to the logger if not already added
+        if not any(isinstance(h, logging.FileHandler) and h.baseFilename == os.path.abspath(log_filename) for h in logger.handlers):
+            logger.addHandler(file_handler)
         
         return logger
     
@@ -93,7 +94,7 @@ class TradingBot:
             
             # Save parameters to file
             self.save_parameters(optimization_results, f"{self.symbol}_strategy_params.json")
-            
+            print('Optimization complete')
             self.logger.info(f"Optimization complete for {self.symbol}")
             self.logger.info(f"  - Weights: {self.strategy.weights}")
             self.logger.info(f"  - Threshold: {self.strategy.vote_thresh}")
@@ -136,15 +137,15 @@ class TradingBot:
     def execute_trade(self, side, price, quantity):
         """Execute a trade using the trading API"""
         if quantity <= 0:
-            self.logger.warning(f"Cannot execute {side} for {self.symbol}: quantity must be positive")
+            print(f"Cannot execute {side} for {self.symbol}: quantity must be positive")
             return False
         
         try:
             execute_trade(self.access_token, self.symbol, side, quantity)
-            self.logger.info(f"Executed {side} for {self.symbol}: {quantity} shares at ${price:.2f}")
+            print(f"Executed {side} for {self.symbol}: {quantity} shares at ${price:.2f}")
             return True
         except Exception as e:
-            self.logger.error(f"Error executing {side} for {self.symbol}: {e}")
+            print(f"Error executing {side} for {self.symbol}: {e}")
             return False
     
     def update_portfolio(self, action, signal, price, quantity):
@@ -182,14 +183,17 @@ class TradingBot:
         max_shares_to_buy = int(self.cash_balance / current_price)
         
         if signal == 1 and self.last_signal != 1:
+            print(f'buying for {self.symbol}')
             # BUY signal
             if max_shares_to_buy > 0:
+                print(f'buying {max_shares_to_buy} shares')
                 if self.execute_trade("buy", current_price, max_shares_to_buy):
                     self.update_portfolio("BUY", signal, current_price, max_shares_to_buy)
                     self.last_signal = signal
         
         elif signal == -1 and self.last_signal != -1:
             # SELL signal - sell all current position
+            print(f'selling for {self.symbol}')
             if self.current_position > 0:
                 if self.execute_trade("sell", current_price, self.current_position):
                     self.update_portfolio("SELL", signal, current_price, self.current_position)
@@ -220,7 +224,6 @@ class TradingBot:
                 # Fetch latest data
                 try:
                     latest_data = fetch_price_data(self.symbol, self.access_token, 3, self.period)
-                    
                     # Update strategy data
                     if self.strategy is not None and latest_data is not None and not latest_data.empty:
                         self.strategy.data = pd.concat([self.strategy.data, latest_data]).drop_duplicates()
@@ -249,41 +252,3 @@ class TradingBot:
             self.logger.critical(f"Critical error in trading bot for {self.symbol}: {e}")
             raise
 
-
-# Main function to run multiple trading bots
-def run_trading_bots(symbols, total_capital=100000):
-    """
-    Run trading bots for multiple symbols
-    
-    Args:
-        symbols (list): List of symbols to trade
-        total_capital (float): Total capital to allocate across all symbols
-    """
-    # Calculate allocation per symbol
-    num_symbols = len(symbols)
-    allocation_per_symbol = total_capital / num_symbols
-    
-    # Create and start trading bots
-    bots = []
-    for symbol in symbols:
-        bot = TradingBot(
-            symbol=symbol,
-            allocation=allocation_per_symbol,
-            days_back=5,
-            period='minute',
-            reoptimize_days=5
-        )
-        bots.append(bot)
-    
-    # Run each bot in a separate process
-    import multiprocessing as mp
-    
-    processes = []
-    for bot in bots:
-        p = mp.Process(target=bot.run)
-        processes.append(p)
-        p.start()
-    
-    # Wait for all processes to complete
-    for p in processes:
-        p.join()
