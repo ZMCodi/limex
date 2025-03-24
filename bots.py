@@ -4,7 +4,6 @@ import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import logging
 
 from limex_strat import Combined
 from utils import get_access_token, fetch_price_data, execute_trade
@@ -48,33 +47,10 @@ class TradingBot:
         if not os.path.exists(self.log_file):
             with open(self.log_file, 'w') as f:
                 f.write("timestamp,symbol,action,signal,price,quantity,cash_balance,portfolio_value\n")
-        
-        # Initialize logger
-        self.logger = self._initialize_logger()
-
-    def _initialize_logger(self):
-        """Initialize a logger for the trading bot"""
-        # Create a logger with the symbol name
-        logger = logging.getLogger(f"bot.{self.symbol}")
-        
-        # Create a file handler specifically for this bot
-        log_filename = f"logs/{self.symbol}_{datetime.now().strftime('%Y%m%d')}.log"
-        file_handler = logging.FileHandler(log_filename)
-        file_handler.setLevel(logging.INFO)
-        
-        # Create a logging format
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(formatter)
-        
-        # Add the handler to the logger if not already added
-        if not any(isinstance(h, logging.FileHandler) and h.baseFilename == os.path.abspath(log_filename) for h in logger.handlers):
-            logger.addHandler(file_handler)
-        
-        return logger
     
     def optimize_strategy(self):
         """Create and optimize a new strategy instance"""
-        self.logger.info(f"Optimizing strategy for {self.symbol}...")
+        print(f"Optimizing strategy for {self.symbol}...")
         
         try:
             # Create Combined strategy with all sub-strategies
@@ -95,14 +71,14 @@ class TradingBot:
             # Save parameters to file
             self.save_parameters(optimization_results, f"{self.symbol}_strategy_params.json")
             print('Optimization complete')
-            self.logger.info(f"Optimization complete for {self.symbol}")
-            self.logger.info(f"  - Weights: {self.strategy.weights}")
-            self.logger.info(f"  - Threshold: {self.strategy.vote_thresh}")
+            print(f"Optimization complete for {self.symbol}")
+            print(f"  - Weights: {self.strategy.weights}")
+            print(f"  - Threshold: {self.strategy.vote_thresh}")
             
             return True
         
         except Exception as e:
-            self.logger.error(f"Error during optimization for {self.symbol}: {e}")
+            print(f"Error during optimization for {self.symbol}: {e}")
             return False
     
     def save_parameters(self, optimization_results, filename):
@@ -168,10 +144,10 @@ class TradingBot:
         with open(self.log_file, 'a') as f:
             f.write(log_entry)
         
-        self.logger.info(f"{action} {self.symbol}: {quantity} shares at ${price:.2f}")
-        self.logger.info(f"  - New position: {self.current_position} shares")
-        self.logger.info(f"  - Cash balance: ${self.cash_balance:.2f}")
-        self.logger.info(f"  - Portfolio value: ${self.portfolio_value:.2f}")
+        print(f"{action} {self.symbol}: {quantity} shares at ${price:.2f}")
+        print(f"  - New position: {self.current_position} shares")
+        print(f"  - Cash balance: ${self.cash_balance:.2f}")
+        print(f"  - Portfolio value: ${self.portfolio_value:.2f}")
     
     def process_signal(self, signal, current_price):
         """Process a trading signal and execute appropriate trades"""
@@ -204,11 +180,11 @@ class TradingBot:
     
     def run(self, refresh_interval=60):
         """Run the trading bot"""
-        self.logger.info(f"Starting trading bot for {self.symbol} with ${self.allocation:.2f} allocation")
+        print(f"Starting trading bot for {self.symbol} with ${self.allocation:.2f} allocation")
         
         # Initial optimization
         if not self.optimize_strategy():
-            self.logger.error(f"Failed to initialize strategy for {self.symbol}. Exiting.")
+            print(f"Failed to initialize strategy for {self.symbol}. Exiting.")
             return
         
         try:
@@ -218,7 +194,7 @@ class TradingBot:
                 # Check if we need to re-optimize (every reoptimize_days)
                 seconds_since_optimization = current_time - self.last_optimization
                 if seconds_since_optimization > (self.reoptimize_days * 24 * 3600):
-                    self.logger.info(f"Time to re-optimize strategy for {self.symbol}")
+                    print(f"Time to re-optimize strategy for {self.symbol}")
                     self.optimize_strategy()
                 
                 # Fetch latest data
@@ -238,17 +214,17 @@ class TradingBot:
                         # Process the signal
                         self.process_signal(latest_signal, current_price)
                     else:
-                        self.logger.warning(f"No data received for {self.symbol}")
+                        print(f"No data received for {self.symbol}")
                 
                 except Exception as e:
-                    self.logger.error(f"Error processing data for {self.symbol}: {e}")
+                    print(f"Error processing data for {self.symbol}: {e}")
                 
                 # Sleep for refresh interval
                 time.sleep(refresh_interval)
                 
         except KeyboardInterrupt:
-            self.logger.info(f"Trading bot for {self.symbol} stopped by user")
+            print(f"Trading bot for {self.symbol} stopped by user")
         except Exception as e:
-            self.logger.critical(f"Critical error in trading bot for {self.symbol}: {e}")
+            print(f"Critical error in trading bot for {self.symbol}: {e}")
             raise
 
