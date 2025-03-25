@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from limex_strat import Combined
+from limex_strat import Combined, MA_C, RSI, MACD, BB
 from utils import get_access_token, fetch_price_data, execute_trade
 import pytz
 
@@ -26,9 +26,13 @@ class TradingBot:
         self.days_back = days_back
         self.period = period
         self.reoptimize_days = reoptimize_days
-        self.access_token = get_access_token()
         
-        # Trading state
+        # Set up access token management
+        self.access_token = None
+        self.token_timestamp = 0  # When the token was last obtained
+        self.refresh_access_token()  # Get initial token
+        
+        # Trading state - these will be updated if a log file exists
         self.current_position = 0  # Shares owned
         self.cash_balance = allocation  # Cash available
         self.portfolio_value = allocation  # Total portfolio value
@@ -44,9 +48,109 @@ class TradingBot:
         
         # Initialize log file
         self.log_file = f"logs/{symbol}_trading_log.csv"
-        if not os.path.exists(self.log_file):
+        
+        # Check if log file exists and restore state if it does
+        self.restore_state_from_log()
+        
+        # Check if params file exists and load or optimize strategy accordingly
+        self.initialize_strategy()
+    
+    def refresh_access_token(self):
+        """Get a new access token or refresh existing one if expired"""
+        current_time = time.time()
+        # Tokens typically expire after 24 hours (86400 seconds)
+        # Refresh if no token or if token is older than 23 hours (82800 seconds)
+        if self.access_token is None or (current_time - self.token_timestamp) > 82800:
+            print(f"Getting new access token for {self.symbol}...")
+            self.access_token = get_access_token()
+            self.token_timestamp = current_time
+            print(f"New access token obtained for {self.symbol}")
+    
+    def restore_state_from_log(self):
+        """Restore trading state from existing log file if available"""
+        if os.path.exists(self.log_file) and os.path.getsize(self.log_file) > 0:
+            try:
+                # Read the log file
+                log_df = pd.read_csv(self.log_file)
+                
+                if not log_df.empty:
+                    # Get the most recent entry
+                    last_entry = log_df.iloc[-1]
+                    
+                    # Restore state from the last entry
+                    self.current_position = int(last_entry['quantity']) if last_entry['action'] == 'BUY' else 0
+                    self.cash_balance = float(last_entry['cash_balance'])
+                    self.portfolio_value = float(last_entry['portfolio_value'])
+                    self.last_signal = int(last_entry['signal'])
+                    
+                    print(f"Restored state for {self.symbol} from log file:")
+                    print(f"  - Current position: {self.current_position} shares")
+                    print(f"  - Cash balance: ${self.cash_balance:.2f}")
+                    print(f"  - Portfolio value: ${self.portfolio_value:.2f}")
+                    print(f"  - Last signal: {self.last_signal}")
+                else:
+                    # Create the header if file exists but is empty
+                    with open(self.log_file, 'w') as f:
+                        f.write("timestamp,symbol,action,signal,price,quantity,cash_balance,portfolio_value\n")
+            except Exception as e:
+                print(f"Error restoring state from log file for {self.symbol}: {e}")
+                # Create a new log file with header
+                with open(self.log_file, 'w') as f:
+                    f.write("timestamp,symbol,action,signal,price,quantity,cash_balance,portfolio_value\n")
+        else:
+            # Create a new log file with header
             with open(self.log_file, 'w') as f:
                 f.write("timestamp,symbol,action,signal,price,quantity,cash_balance,portfolio_value\n")
+    
+    def initialize_strategy(self):
+        """Initialize the strategy by loading existing parameters or optimizing"""
+        params_file = os.path.join('params', f"{self.symbol}_strategy_params.json")
+        
+        if os.path.exists(params_file):
+            try:
+                # Load existing parameters
+                with open(params_file, 'r') as f:
+                    params_data = json.load(f)
+                
+                if self.symbol in params_data:
+                    symbol_params = params_data[self.symbol]
+                    
+                    # Create Combined strategy
+                    self.strategy = Combined(self.symbol, days_back=self.days_back, period=self.period)
+                    
+                    # Apply parameters to Combined strategy
+                    self.strategy.change_params(
+                        weights=symbol_params.get('weights', [0.25, 0.25, 0.25, 0.25]),
+                        vote_thresh=symbol_params.get('vote_thresh', 0.0)
+                    )
+                    
+                    # Apply individual strategy parameters if they exist
+                    if 'individual_params' in symbol_params:
+                        ind_params = symbol_params['individual_params']
+                        
+                        # Apply to each strategy, assuming order is [MA_C, RSI, MACD, BB]
+                        for i, strat in enumerate(self.strategy.strategies):
+                            strat_name = strat.__class__.__name__
+                            if strat_name in ind_params:
+                                strat.change_params(**ind_params[strat_name])
+                    
+                    # Set last optimization timestamp
+                    self.last_optimization = symbol_params.get('timestamp', time.time())
+                    
+                    print(f"Loaded existing parameters for {self.symbol}")
+                    print(f"  - Weights: {self.strategy.weights}")
+                    print(f"  - Threshold: {self.strategy.vote_thresh}")
+                    print(f"  - Last optimization: {datetime.fromtimestamp(self.last_optimization)}")
+                    for s in self.strategy.strategies:
+                        print(s.params)
+                    
+                    return True
+            except Exception as e:
+                print(f"Error loading parameters for {self.symbol}: {e}")
+        
+        # If we get here, either no parameters exist or there was an error loading them
+        print(f"No existing parameters found for {self.symbol}. Optimizing...")
+        return self.optimize_strategy()
     
     def optimize_strategy(self):
         """Create and optimize a new strategy instance"""
@@ -90,11 +194,20 @@ class TradingBot:
         # Add params/ prefix to filename
         filepath = os.path.join('params', filename)
         
+        # Collect individual strategy parameters
+        individual_params = {}
+        for strat in self.strategy.strategies:
+            strat_name = strat.__class__.__name__
+            individual_params[strat_name] = strat.params
+            if 'weights' in strat.params:
+                individual_params[strat_name]['weights'] = list(individual_params[strat_name]['weights'])
+        
         params = {
             "symbol": self.symbol,
             "timestamp": self.last_optimization,
             "weights": [float(w) for w in optimization_results['weights']],
-            "vote_thresh": float(optimization_results['vote_thresh'])
+            "vote_thresh": float(optimization_results['vote_thresh']),
+            "individual_params": individual_params
         }
         
         # Load existing parameters if file exists
@@ -115,6 +228,9 @@ class TradingBot:
         if quantity <= 0:
             print(f"Cannot execute {side} for {self.symbol}: quantity must be positive")
             return False
+        
+        # Ensure access token is fresh
+        self.refresh_access_token()
         
         try:
             execute_trade(self.access_token, self.symbol, side, quantity)
@@ -182,14 +298,12 @@ class TradingBot:
         """Run the trading bot"""
         print(f"Starting trading bot for {self.symbol} with ${self.allocation:.2f} allocation")
         
-        # Initial optimization
-        if not self.optimize_strategy():
-            print(f"Failed to initialize strategy for {self.symbol}. Exiting.")
-            return
-        
         try:
             while True:
                 current_time = time.time()
+                
+                # Refresh token if needed
+                self.refresh_access_token()
                 
                 # Check if market is open
                 if not self.is_market_open():
@@ -284,4 +398,3 @@ class TradingBot:
         hours_until_open = diff.total_seconds() / 3600
         
         return hours_until_open
-

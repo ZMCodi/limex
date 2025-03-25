@@ -374,3 +374,26 @@ class Combined(Strategy):
             'vote_thresh': float(opt_threshold),
             'results': res.to_dict(),
         }
+    
+    def plot(self):
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        
+        # Primary y-axis for close price
+        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['close'], 
+                               mode='lines', name='Close Price', yaxis='y'))
+        
+        # Secondary y-axis for signals
+        for strat in self.strategies:
+            fig.add_trace(go.Scatter(x=self.data.index, y=strat.data['signal'], 
+                                   mode='lines', name=strat.__class__.__name__, yaxis='y2'))
+
+        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['signal'], 
+                               mode='lines', name='Combined Signal', yaxis='y2'))
+        
+        # Update layout to include secondary y-axis
+        fig.update_layout(
+            yaxis=dict(title='Price', side='left'),
+            yaxis2=dict(title='Signals', side='right', overlaying='y')
+        )
+        return fig
