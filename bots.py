@@ -322,7 +322,15 @@ class TradingBot:
                 # Fetch latest data
                 try:
                     print(f"Fetching data for {self.symbol}")
-                    latest_data = fetch_price_data(self.symbol, self.access_token, 3, self.period)
+                    try:
+                        latest_data = fetch_price_data(self.symbol, self.access_token, 3, self.period)
+                    except Exception as e:
+                        print(f"Access token expired for {self.symbol}: {e}")
+                        self.access_token = None
+                        print(f"Refreshing access token and refetching for {self.symbol}")
+                        self.refresh_access_token()
+                        latest_data = fetch_price_data(self.symbol, self.access_token, 3, self.period)
+
                     # Update strategy data
                     if self.strategy is not None and latest_data is not None and not latest_data.empty:
                         self.strategy.data = pd.concat([self.strategy.data, latest_data]).drop_duplicates()
